@@ -27,6 +27,7 @@ const passwordResetEmailTemplate = `
 </html>
 `
 
+// PasswordResetEmailData holds data for the password reset email template.
 type PasswordResetEmailData struct {
 	ResetLink     string
 	ExpireMinutes int

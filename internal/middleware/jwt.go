@@ -1,3 +1,4 @@
+// Package middleware provides Fiber middleware for authentication and authorization.
 package middleware
 
 import (
@@ -7,6 +8,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
+// JwtMiddleware returns a Fiber middleware for JWT authentication.
 func JwtMiddleware(jwtSvc *service.JwtService) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		auth := c.Get("Authorization")
@@ -18,11 +20,11 @@ func JwtMiddleware(jwtSvc *service.JwtService) fiber.Handler {
 		if len(parts) != 2 {
 			return c.Status(401).JSON(fiber.Map{"error": "invalid token format"})
 		}
-		userId, err := jwtSvc.ValidateAccessToken(parts[1])
+		userID, err := jwtSvc.ValidateAccessToken(parts[1])
 		if err != nil {
 			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
 		}
-		c.Locals("userId", userId)
+		c.Locals("userID", userID)
 		return c.Next()
 	}
 }

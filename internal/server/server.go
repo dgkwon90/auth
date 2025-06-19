@@ -1,4 +1,14 @@
+// Package server provides the HTTP server and routing for the authentication service.
 package server
+
+// @title Auth API
+// @version 1.0
+// @description 인증/회원관리 서비스 API 문서
+// @host localhost:3000
+// @BasePath /api/v1
+// @schemes http
+// @contact.name Auth API Support
+// @contact.email support@example.com
 
 import (
 	"auth/internal/config"
@@ -9,6 +19,7 @@ import (
 	"auth/internal/service/email"
 	"auth/pkg/database"
 
+	// docs 패키지는 Swagger 문서 생성을 위해 필요합니다. 실제 코드에서는 사용되지 않습니다.
 	_ "auth/docs"
 
 	"github.com/bytedance/sonic"
@@ -19,24 +30,20 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
+// APIPrefix is the base path for all API routes.
+// APIVersion is the version path for the API.
 const (
-	ApiPrefix  = "/api"
-	ApiVersion = "/v1"
+	APIPrefix  = "/api"
+	APIVersion = "/v1"
 )
 
+// Server wraps the Fiber app and database pool.
 type Server struct {
 	App    *fiber.App
 	DbPool *pgxpool.Pool
 }
 
-// @title Auth API
-// @version 1.0
-// @description 인증/회원관리 서비스 API 문서
-// @host localhost:3000
-// @BasePath /api/v1
-// @schemes http
-// @contact.name Auth API Support
-// @contact.email support@example.com
+// NewServer creates and configures a new HTTP server for the authentication service.
 func NewServer(cfg config.Config) *Server {
 	// Initialize Fiber app
 	app := fiber.New(fiber.Config{
@@ -50,13 +57,13 @@ func NewServer(cfg config.Config) *Server {
 	app.Use(logger.New())
 	app.Use(cors.New())
 
-	if err := database.Connect(cfg.DatabaseUrl); err != nil {
+	if err := database.Connect(cfg.DatabaseURL); err != nil {
 		panic(err)
 	}
 	dbPool := database.GetPool()
 
 	jwtService := service.NewJwtService(cfg.JwtSecret)
-	emailService := email.NewEmailService(cfg.SmtpServer, cfg.SmtpPort, cfg.SmtpId, cfg.SmtpPassword)
+	emailService := email.NewEmailService(cfg.SMTPServer, cfg.SMTPPort, cfg.SMTPID, cfg.SMTPPassword)
 	authService := service.NewAuthService(dbPool,
 		repository.NewUserRepository(dbPool),
 		repository.NewProfileRepository(dbPool),
@@ -64,7 +71,7 @@ func NewServer(cfg config.Config) *Server {
 	)
 	authHandler := handler.NewAuthHandler(authService)
 
-	api := app.Group(ApiPrefix).Group(ApiVersion)
+	api := app.Group(APIPrefix).Group(APIVersion)
 	auth := api.Group("/auth")
 	auth.Post("/register", authHandler.Register)
 	auth.Post("/login", authHandler.Login)
@@ -86,6 +93,7 @@ func NewServer(cfg config.Config) *Server {
 	return &Server{App: app, DbPool: dbPool}
 }
 
+// Close gracefully closes the database connection pool.
 func (s *Server) Close() {
 	if s.DbPool != nil {
 		s.DbPool.Close()

@@ -1,3 +1,4 @@
+// Package main is the entry point for the authentication service application.
 package main
 
 import (

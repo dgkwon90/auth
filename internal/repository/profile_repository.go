@@ -1,3 +1,4 @@
+// Package repository provides database access and persistence logic.
 package repository
 
 import (
@@ -12,10 +13,10 @@ import (
 	"auth/internal/entity"
 )
 
+// ProfileRepository defines profile-related database operations.
 type ProfileRepository interface {
 	CreateTx(ctx context.Context, tx pgx.Tx, p *entity.ProfileEntity) error
-	// Create(ctx context.Context, p *entity.ProfileEntity) error
-	FindByUserId(ctx context.Context, userId int64) (*entity.ProfileEntity, error)
+	FindByUserID(ctx context.Context, userID int64) (*entity.ProfileEntity, error)
 	FindByPhoneNumber(ctx context.Context, phoneNumber string) (*entity.ProfileEntity, error)
 	Update(ctx context.Context, p *entity.ProfileEntity) error
 	CreateTable(ctx context.Context) error
@@ -25,6 +26,7 @@ type profileRepository struct {
 	dbPool *pgxpool.Pool
 }
 
+// NewProfileRepository creates a new ProfileRepository instance.
 func NewProfileRepository(dbPool *pgxpool.Pool) ProfileRepository {
 	r := &profileRepository{dbPool: dbPool}
 	if err := r.CreateTable(context.Background()); err != nil {
@@ -76,8 +78,8 @@ func (r *profileRepository) CreateTx(ctx context.Context, tx pgx.Tx, p *entity.P
         RETURNING id
     `
 	return tx.QueryRow(ctx, query,
-		p.UserId, p.Name, p.BirthDate, p.GenderCode, p.PhoneNumber, p.CreatedAt, p.UpdatedAt,
-	).Scan(&p.Id)
+		p.UserID, p.Name, p.BirthDate, p.GenderCode, p.PhoneNumber, p.CreatedAt, p.UpdatedAt,
+	).Scan(&p.ID)
 }
 
 // Create adds a new profile record
@@ -92,22 +94,22 @@ func (r *profileRepository) CreateTx(ctx context.Context, tx pgx.Tx, p *entity.P
 // 	).Scan(&p.Id)
 // }
 
-// FindByUserId retrieves a profile by user ID
-func (r *profileRepository) FindByUserId(ctx context.Context, userId int64) (*entity.ProfileEntity, error) {
+// FindByUserID retrieves a profile by user ID
+func (r *profileRepository) FindByUserID(ctx context.Context, userID int64) (*entity.ProfileEntity, error) {
 	query := `SELECT
-			id,                 -- int64
-            user_id,            -- int64
-            name,               -- string
-            birth_date,         -- time.Time
-            gender_code,        -- string
-            phone_number,       -- string
-            created_at,         -- time.Time
-            updated_at          -- time.Time
-        FROM profiles
-        WHERE user_id = $1`
+		id,                 -- int64
+        user_id,            -- int64
+        name,               -- string
+        birth_date,         -- time.Time
+        gender_code,        -- string
+        phone_number,       -- string
+        created_at,         -- time.Time
+        updated_at          -- time.Time
+    FROM profiles
+    WHERE user_id = $1`
 	p := &entity.ProfileEntity{}
-	err := r.dbPool.QueryRow(ctx, query, userId).Scan(
-		&p.Id, &p.UserId, &p.Name, &p.BirthDate, &p.GenderCode, &p.PhoneNumber, &p.CreatedAt, &p.UpdatedAt,
+	err := r.dbPool.QueryRow(ctx, query, userID).Scan(
+		&p.ID, &p.UserID, &p.Name, &p.BirthDate, &p.GenderCode, &p.PhoneNumber, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -135,7 +137,7 @@ func (r *profileRepository) FindByPhoneNumber(ctx context.Context, phoneNumber s
     `
 	p := &entity.ProfileEntity{}
 	err := r.dbPool.QueryRow(ctx, query, phoneNumber).Scan(
-		&p.Id, &p.UserId, &p.Name, &p.BirthDate, &p.GenderCode, &p.PhoneNumber, &p.CreatedAt, &p.UpdatedAt,
+		&p.ID, &p.UserID, &p.Name, &p.BirthDate, &p.GenderCode, &p.PhoneNumber, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -152,7 +154,7 @@ func (r *profileRepository) Update(ctx context.Context, p *entity.ProfileEntity)
         SET name = $1, birth_date = $2, gender_code = $3, phone_number = $4, updated_at = $5
         WHERE user_id = $6`
 	cmd, err := r.dbPool.Exec(ctx, query,
-		p.Name, p.BirthDate, p.GenderCode, p.PhoneNumber, p.UpdatedAt, p.UserId,
+		p.Name, p.BirthDate, p.GenderCode, p.PhoneNumber, p.UpdatedAt, p.UserID,
 	)
 	if err != nil {
 		return err
@@ -169,7 +171,7 @@ func (r *profileRepository) UpdateTx(ctx context.Context, tx pgx.Tx, p *entity.P
         SET name = $1, birth_date = $2, gender_code = $3, phone_number = $4, updated_at = $5
         WHERE user_id = $6`
 	cmd, err := tx.Exec(ctx, query,
-		p.Name, p.BirthDate, p.GenderCode, p.PhoneNumber, p.UpdatedAt, p.UserId,
+		p.Name, p.BirthDate, p.GenderCode, p.PhoneNumber, p.UpdatedAt, p.UserID,
 	)
 	if err != nil {
 		return err

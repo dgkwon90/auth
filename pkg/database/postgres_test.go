@@ -21,7 +21,7 @@ func Test_DB연결성공(t *testing.T) {
 	// Test the database connection with valid credentials
 	// Note: Replace with actual valid credentials for testing
 	config := config.LoadConfig("E:/workspace/auth/.env")
-	dataSourceName := config.DatabaseUrl
+	dataSourceName := config.DatabaseURL
 	err := database.Connect(dataSourceName)
 
 	// Assert that no error is returned
@@ -32,7 +32,7 @@ func Test_DB연결후반환(t *testing.T) {
 	// Test the database connection with valid credentials
 	// Note: Replace with actual valid credentials for testing
 	config := config.LoadConfig("E:/workspace/auth/.env")
-	dataSourceName := config.DatabaseUrl
+	dataSourceName := config.DatabaseURL
 	err := database.Connect(dataSourceName)
 
 	// Assert that no error is returned
