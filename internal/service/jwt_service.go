@@ -1,3 +1,4 @@
+// Package service provides authentication and JWT token utilities for the authentication service.
 package service
 
 import (
@@ -8,11 +9,13 @@ import (
 	"github.com/golang-jwt/jwt/v4" // jwt (제이더블유티, jwt)
 )
 
+// JwtService handles JWT token generation and validation.
 type JwtService struct {
 	accessTokenSecret  []byte
 	refreshTokenSecret []byte
 }
 
+// NewJwtService creates a new JwtService.
 func NewJwtService(secret string) *JwtService {
 	return &JwtService{
 		accessTokenSecret:  []byte(secret),
@@ -20,9 +23,10 @@ func NewJwtService(secret string) *JwtService {
 	}
 }
 
-func (s *JwtService) GenerateToken(userId int64) (string, error) {
+// GenerateToken generates a JWT access token for the given user ID.
+func (s *JwtService) GenerateToken(userID int64) (string, error) {
 	claims := jwt.RegisteredClaims{
-		Subject:   fmt.Sprint(userId),
+		Subject:   fmt.Sprint(userID),
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
 	}
@@ -30,10 +34,10 @@ func (s *JwtService) GenerateToken(userId int64) (string, error) {
 	return token.SignedString(s.accessTokenSecret)
 }
 
-// GenerateRefreshToken: 유저ID+디바이스 정보로 리프레시 토큰 생성
-func (s *JwtService) GenerateRefreshToken(userId int64, deviceInfo string) (string, error) {
+// GenerateRefreshToken generates a refresh token for the given user ID and device info.
+func (s *JwtService) GenerateRefreshToken(userID int64, deviceInfo string) (string, error) {
 	claims := jwt.MapClaims{
-		"sub": fmt.Sprint(userId),
+		"sub": fmt.Sprint(userID),
 		"dev": deviceInfo, // device info (디바이스 정보, device info)
 		"exp": time.Now().Add(7 * 24 * time.Hour).Unix(),
 		"iat": time.Now().Unix(),
@@ -42,9 +46,10 @@ func (s *JwtService) GenerateRefreshToken(userId int64, deviceInfo string) (stri
 	return token.SignedString(s.refreshTokenSecret)
 }
 
-func (s *JwtService) ValidateAccessToken(tokenString string) (userId int64, err error) {
+// ValidateAccessToken validates the access token and returns the user ID.
+func (s *JwtService) ValidateAccessToken(tokenString string) (userID int64, err error) {
 	// RegisteredClaims 사용
-	token, err := jwt.ParseWithClaims(tokenString, &jwt.RegisteredClaims{}, func(t *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &jwt.RegisteredClaims{}, func(_ *jwt.Token) (interface{}, error) {
 		return s.accessTokenSecret, nil
 	})
 	if err != nil {
@@ -55,7 +60,7 @@ func (s *JwtService) ValidateAccessToken(tokenString string) (userId int64, err 
 		return 0, errors.New("invalid access token")
 	}
 	// 만료 검증
-	if claims.ExpiresAt.Time.Before(time.Now()) {
+	if claims.ExpiresAt.Before(time.Now()) {
 		return 0, errors.New("access token expired")
 	}
 	// Subject에 저장된 userID 파싱
@@ -67,9 +72,10 @@ func (s *JwtService) ValidateAccessToken(tokenString string) (userId int64, err 
 	return id, nil
 }
 
-func (s *JwtService) ValidateRefreshToken(tokenString string) (userId int64, deviceInfo string, err error) {
+// ValidateRefreshToken validates the refresh token and returns the user ID and device info.
+func (s *JwtService) ValidateRefreshToken(tokenString string) (userID int64, deviceInfo string, err error) {
 	// MapClaims 사용
-	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
+	token, err := jwt.Parse(tokenString, func(_ *jwt.Token) (interface{}, error) {
 		return s.refreshTokenSecret, nil
 	})
 	if err != nil {

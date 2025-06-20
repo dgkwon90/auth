@@ -80,6 +80,60 @@
   - [http://localhost:3000/swagger/index.html](http://localhost:3000/swagger/index.html)
 - 모든 엔드포인트의 요청/응답 스키마와 예시를 인터랙티브하게 확인할 수 있습니다.
 
+## lint 검사
+
+Go 코드의 스타일 및 잠재적 버그를 자동으로 검사하기 위해 [golangci-lint](https://github.com/golangci/golangci-lint)를 사용합니다.
+
+### 설치 방법
+
+macOS에서는 Homebrew로 설치하거나, 공식 스크립트로 설치할 수 있습니다.
+
+- Homebrew 사용:
+
+  ```shell
+  brew install golangci-lint
+  ```
+
+- 공식 설치 스크립트 사용:
+
+  ```shell
+  curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.54.2
+  ```
+
+설치 후 버전을 확인하세요:
+
+```shell
+  golangci-lint --version
+```
+
+### 설정 방법
+
+프로젝트 루트에 `.golangci.yml` 파일이 있습니다. 주요 설정 예시는 다음과 같습니다:
+
+```yaml
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - revive
+    - govet
+    - errcheck
+    - staticcheck
+run:
+  timeout: 3m
+```
+
+### 실행 방법
+
+아래 명령어로 전체 프로젝트에 린트 검사를 실행할 수 있습니다:
+
+```shell
+  golangci-lint run
+```
+
+에러 및 경고가 있으면 터미널에 출력됩니다. 코드 품질 유지를 위해 PR 전 린트 검사를 권장합니다.
+
 ## 라이선스
 
 이 프로젝트는 MIT 라이선스를 따릅니다.

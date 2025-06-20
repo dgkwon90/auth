@@ -1,3 +1,4 @@
+// Package repository provides database access and persistence logic.
 package repository
 
 import (
@@ -11,35 +12,37 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
+// UserRepository defines user-related database operations.
 type UserRepository interface {
 	CreateTx(ctx context.Context, tx pgx.Tx, user *entity.UserEntity) (int64, error)
-	// Create(ctx context.Context, user *entity.UserEntity) error
-	FindById(ctx context.Context, id int64) (*entity.UserEntity, error)
+	FindByID(ctx context.Context, id int64) (*entity.UserEntity, error)
 	FindByEmail(ctx context.Context, email string) (*entity.UserEntity, error)
 	FindByEmailTx(ctx context.Context, tx pgx.Tx, email string) (*entity.UserEntity, error)
 	UpdatePassword(ctx context.Context, id int64, passwordHash string) error
 	Delete(ctx context.Context, id int64) error
 	InsertRefreshToken(ctx context.Context, rt *entity.RefreshTokenEntity) error
-	DeleteByUserIdAndDevice(ctx context.Context, userId int64, deviceInfo string) error
+	DeleteByUserIDAndDevice(ctx context.Context, userID int64, deviceInfo string) error
 	FindRefreshToken(ctx context.Context, token string) (*entity.RefreshTokenEntity, error)
-	FindByUserDeviceAndToken(ctx context.Context, userId int64, deviceInfo, token string) (*entity.RefreshTokenEntity, error)
-	DeleteRefreshToken(ctx context.Context, userId int64, token string) error
-	DeleteAllRefreshTokens(ctx context.Context, userId int64) error
-	SavePasswordResetToken(ctx context.Context, userId int64, token string, expiredAt time.Time) error
+	FindByUserDeviceAndToken(ctx context.Context, userID int64, deviceInfo, token string) (*entity.RefreshTokenEntity, error)
+	DeleteRefreshToken(ctx context.Context, userID int64, token string) error
+	DeleteAllRefreshTokens(ctx context.Context, userID int64) error
+	SavePasswordResetToken(ctx context.Context, userID int64, token string, expiredAt time.Time) error
 	FindByPasswordResetToken(ctx context.Context, token string) (*entity.PasswordResetTokenEntity, error)
 	ExpirePasswordResetToken(ctx context.Context, token string) error
 }
 
-type userRepository struct {
-	dbPool *pgxpool.Pool
-}
-
+// NewUserRepository creates a new UserRepository instance.
 func NewUserRepository(dbPool *pgxpool.Pool) UserRepository {
 	repo := &userRepository{dbPool: dbPool}
 	if err := repo.createTable(context.Background()); err != nil {
 		slog.Warn("Error creating tables", "error", err)
 	}
 	return repo
+}
+
+// userRepository implements UserRepository interface.
+type userRepository struct {
+	dbPool *pgxpool.Pool
 }
 
 // createTable: users·refresh_tokens 테이블 생성
@@ -103,13 +106,13 @@ func (r *userRepository) CreateTx(ctx context.Context, tx pgx.Tx, user *entity.U
 // }
 
 // FindById: ID로 사용자 조회
-func (r *userRepository) FindById(ctx context.Context, id int64) (*entity.UserEntity, error) {
+func (r *userRepository) FindByID(ctx context.Context, id int64) (*entity.UserEntity, error) {
 	query := `SELECT id, email, password_hash, created_at, updated_at, deleted_at
         FROM users
         WHERE id = $1 AND deleted_at IS NULL`
 	u := &entity.UserEntity{}
 	err := r.dbPool.QueryRow(ctx, query, id).Scan(
-		&u.Id, &u.Email, &u.PasswordHash, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
+		&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -127,7 +130,7 @@ func (r *userRepository) FindByEmail(ctx context.Context, email string) (*entity
         WHERE email = $1 AND deleted_at IS NULL`
 	u := &entity.UserEntity{}
 	err := r.dbPool.QueryRow(ctx, query, email).Scan(
-		&u.Id, &u.Email, &u.PasswordHash, &u.Provider, &u.ProviderId,
+		&u.ID, &u.Email, &u.PasswordHash, &u.Provider, &u.ProviderID,
 		&u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
 	)
 	if err != nil {
@@ -146,7 +149,7 @@ func (r *userRepository) FindByEmailTx(ctx context.Context, tx pgx.Tx, email str
 		WHERE email = $1 AND deleted_at IS NULL`
 	u := &entity.UserEntity{}
 	err := tx.QueryRow(ctx, query, email).Scan(
-		&u.Id, &u.Email, &u.PasswordHash, &u.Provider, &u.ProviderId,
+		&u.ID, &u.Email, &u.PasswordHash, &u.Provider, &u.ProviderID,
 		&u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
 	)
 	if err != nil {
@@ -180,14 +183,14 @@ func (r *userRepository) Delete(ctx context.Context, id int64) error {
 func (r *userRepository) InsertRefreshToken(ctx context.Context, rt *entity.RefreshTokenEntity) error {
 	query := `INSERT INTO refresh_tokens (user_id, token, device_info, created_at, expired_at)
         VALUES ($1, $2, $3, NOW(), $4)`
-	_, err := r.dbPool.Exec(ctx, query, rt.UserId, rt.Token, rt.DeviceInfo, rt.ExpiredAt)
+	_, err := r.dbPool.Exec(ctx, query, rt.UserID, rt.Token, rt.DeviceInfo, rt.ExpiredAt)
 	return err
 }
 
 // DeleteByUserIdAndDevice: 특정 디바이스 토큰 삭제
-func (r *userRepository) DeleteByUserIdAndDevice(ctx context.Context, userId int64, deviceInfo string) error {
+func (r *userRepository) DeleteByUserIDAndDevice(ctx context.Context, userID int64, deviceInfo string) error {
 	query := `DELETE FROM refresh_tokens WHERE user_id=$1 AND device_info=$2`
-	_, err := r.dbPool.Exec(ctx, query, userId, deviceInfo)
+	_, err := r.dbPool.Exec(ctx, query, userID, deviceInfo)
 	return err
 }
 
@@ -198,7 +201,7 @@ func (r *userRepository) FindRefreshToken(ctx context.Context, token string) (*e
         WHERE token = $1`
 	rt := &entity.RefreshTokenEntity{}
 	err := r.dbPool.QueryRow(ctx, query, token).Scan(
-		&rt.Id, &rt.UserId, &rt.Token, &rt.DeviceInfo, &rt.CreatedAt, &rt.ExpiredAt,
+		&rt.ID, &rt.UserID, &rt.Token, &rt.DeviceInfo, &rt.CreatedAt, &rt.ExpiredAt,
 	)
 	if err != nil {
 		return nil, err
@@ -207,13 +210,13 @@ func (r *userRepository) FindRefreshToken(ctx context.Context, token string) (*e
 }
 
 // FindByUserDeviceAndToken: user+device+token 으로 조회
-func (r *userRepository) FindByUserDeviceAndToken(ctx context.Context, userId int64, deviceInfo, token string) (*entity.RefreshTokenEntity, error) {
+func (r *userRepository) FindByUserDeviceAndToken(ctx context.Context, userID int64, deviceInfo, token string) (*entity.RefreshTokenEntity, error) {
 	query := `SELECT id, user_id, token, device_info, created_at, expired_at
         FROM refresh_tokens
         WHERE user_id=$1 AND device_info=$2 AND token=$3`
 	rt := &entity.RefreshTokenEntity{}
-	err := r.dbPool.QueryRow(ctx, query, userId, deviceInfo, token).Scan(
-		&rt.Id, &rt.UserId, &rt.Token, &rt.DeviceInfo, &rt.CreatedAt, &rt.ExpiredAt,
+	err := r.dbPool.QueryRow(ctx, query, userID, deviceInfo, token).Scan(
+		&rt.ID, &rt.UserID, &rt.Token, &rt.DeviceInfo, &rt.CreatedAt, &rt.ExpiredAt,
 	)
 	if err != nil {
 		return nil, err
@@ -222,31 +225,31 @@ func (r *userRepository) FindByUserDeviceAndToken(ctx context.Context, userId in
 }
 
 // DeleteRefreshToken: 로그아웃용 단일 토큰 삭제
-func (r *userRepository) DeleteRefreshToken(ctx context.Context, userId int64, token string) error {
+func (r *userRepository) DeleteRefreshToken(ctx context.Context, userID int64, token string) error {
 	query := `DELETE FROM refresh_tokens WHERE user_id = $1 AND token = $2`
-	_, err := r.dbPool.Exec(ctx, query, userId, token)
+	_, err := r.dbPool.Exec(ctx, query, userID, token)
 	return err
 }
 
 // DeleteAllRefreshTokens: 회원탈퇴·강제 로그아웃용 전체 삭제
-func (r *userRepository) DeleteAllRefreshTokens(ctx context.Context, userId int64) error {
+func (r *userRepository) DeleteAllRefreshTokens(ctx context.Context, userID int64) error {
 	query := `DELETE FROM refresh_tokens WHERE user_id = $1`
-	_, err := r.dbPool.Exec(ctx, query, userId)
+	_, err := r.dbPool.Exec(ctx, query, userID)
 	return err
 }
 
-func (r *userRepository) SavePasswordResetToken(ctx context.Context, userId int64, token string, expiredAt time.Time) error {
+func (r *userRepository) SavePasswordResetToken(ctx context.Context, userID int64, token string, expiredAt time.Time) error {
 	_, err := r.dbPool.Exec(ctx, `INSERT INTO password_reset_tokens (user_id, token, expired_at, used)
          VALUES ($1, $2, $3, false)
          ON CONFLICT (user_id) DO UPDATE SET token = $2, expired_at = $3, used = false`,
-		userId, token, expiredAt)
+		userID, token, expiredAt)
 	return err
 }
 
 func (r *userRepository) FindByPasswordResetToken(ctx context.Context, token string) (*entity.PasswordResetTokenEntity, error) {
 	row := r.dbPool.QueryRow(ctx, `SELECT user_id, token, expired_at, used FROM password_reset_tokens WHERE token=$1 AND used=false`, token)
 	var info entity.PasswordResetTokenEntity
-	err := row.Scan(&info.UserId, &info.Token, &info.ExpiredAt, &info.Used)
+	err := row.Scan(&info.UserID, &info.Token, &info.ExpiredAt, &info.Used)
 	if err != nil {
 		return nil, err
 	}

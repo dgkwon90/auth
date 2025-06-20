@@ -1,3 +1,4 @@
+// Package config provides configuration loading from environment variables and .env files.
 package config
 
 import (
@@ -10,14 +11,15 @@ import (
 )
 
 // Config 환경 변수 구조체
+// Config holds all environment variables for the application.
 type Config struct {
 	Port         string
 	JwtSecret    string
-	SmtpServer   string
-	SmtpPort     string
-	SmtpId       string
-	SmtpPassword string
-	DatabaseUrl  string
+	SMTPServer   string
+	SMTPPort     string
+	SMTPID       string
+	SMTPPassword string
+	DatabaseURL  string
 }
 
 var (
@@ -26,6 +28,7 @@ var (
 )
 
 // LoadConfig 환경 변수 로드
+// LoadConfig loads environment variables from .env files and returns a Config struct.
 func LoadConfig(filenames ...string) Config {
 	once.Do(func() {
 		err := godotenv.Load(filenames...)
@@ -40,7 +43,7 @@ func LoadConfig(filenames ...string) Config {
 		dbName := getEnv("DB_NAME", "postgres")
 
 		// PostgreSQL 연결 문자열 생성
-		databaseUrl := fmt.Sprintf(
+		databaseURL := fmt.Sprintf(
 			"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 			dbHost, dbPort, dbUser, dbPassword, dbName,
 		)
@@ -48,17 +51,19 @@ func LoadConfig(filenames ...string) Config {
 		config = Config{
 			Port:         getEnv("PORT", "3000"),
 			JwtSecret:    getEnv("JWT_SECRET", ""),
-			SmtpServer:   getEnv("SMTP_SERVER", ""),
-			SmtpPort:     getEnv("SMTP_PORT", ""),
-			SmtpId:       getEnv("SMTP_ID", ""),
-			SmtpPassword: getEnv("SMTP_PASSWORD", ""),
-			DatabaseUrl:  databaseUrl,
+			SMTPServer:   getEnv("SMTP_SERVER", ""),
+			SMTPPort:     getEnv("SMTP_PORT", ""),
+			SMTPID:       getEnv("SMTP_ID", ""),
+			SMTPPassword: getEnv("SMTP_PASSWORD", ""),
+			DatabaseURL:  databaseURL,
 		}
+		log.Info("Configuration loaded successfully", config)
 	})
 	return config
 }
 
 // getEnv 환경 변수 가져오기
+// getEnv returns the value of the environment variable or a default value if not set.
 func getEnv(key, defaultValue string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
