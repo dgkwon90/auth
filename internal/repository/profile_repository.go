@@ -9,13 +9,14 @@ import (
 
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
+	"zombiezen.com/go/sqlite"
 
 	"auth/internal/entity"
 )
 
 // ProfileRepository defines profile-related database operations.
 type ProfileRepository interface {
-	CreateTx(ctx context.Context, tx pgx.Tx, p *entity.ProfileEntity) error
+	CreateTx(ctx context.Context, tx interface{}, p *entity.ProfileEntity) error
 	FindByUserID(ctx context.Context, userID int64) (*entity.ProfileEntity, error)
 	FindByPhoneNumber(ctx context.Context, phoneNumber string) (*entity.ProfileEntity, error)
 	Update(ctx context.Context, p *entity.ProfileEntity) error
@@ -33,6 +34,21 @@ func NewProfileRepository(dbPool *pgxpool.Pool) ProfileRepository {
 		slog.Warn("Error creating profiles table", "error", err)
 	}
 	return r
+}
+
+// NewProfileRepositoryAuto returns a ProfileRepository for the given DB type.
+func NewProfileRepositoryAuto(dbType string, pgxPool *pgxpool.Pool, sqliteConn interface{}) ProfileRepository {
+	switch dbType {
+	case "sqlite":
+		if conn, ok := sqliteConn.(*sqlite.Conn); ok {
+			return NewProfileRepositorySqlite(conn)
+		}
+		panic("sqliteConn is not *sqlite.Conn")
+	case "postgres":
+		fallthrough
+	default:
+		return NewProfileRepository(pgxPool)
+	}
 }
 
 // CreateTable creates the profiles table if it does not exist
@@ -71,13 +87,15 @@ func (r *profileRepository) CreateTable(ctx context.Context) error {
 }
 
 // CreateTx inserts a profile within a transaction
-func (r *profileRepository) CreateTx(ctx context.Context, tx pgx.Tx, p *entity.ProfileEntity) error {
-	query := `
-        INSERT INTO profiles (user_id, name, birth_date, gender_code, phone_number, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id
-    `
-	return tx.QueryRow(ctx, query,
+func (r *profileRepository) CreateTx(ctx context.Context, tx interface{}, p *entity.ProfileEntity) error {
+	pgxTx, ok := tx.(pgx.Tx)
+	if !ok {
+		return errors.New("tx is not pgx.Tx")
+	}
+	query := `INSERT INTO profiles (user_id, name, birth_date, gender_code, phone_number, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id`
+	return pgxTx.QueryRow(ctx, query,
 		p.UserID, p.Name, p.BirthDate, p.GenderCode, p.PhoneNumber, p.CreatedAt, p.UpdatedAt,
 	).Scan(&p.ID)
 }

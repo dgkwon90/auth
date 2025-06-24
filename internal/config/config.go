@@ -20,6 +20,8 @@ type Config struct {
 	SMTPID       string
 	SMTPPassword string
 	DatabaseURL  string
+	DBType       string // "postgres" or "sqlite"
+	SqlitePath   string // sqlite 파일 경로
 }
 
 var (
@@ -36,17 +38,21 @@ func LoadConfig(filenames ...string) Config {
 			log.Warn("Error loading .env file", "error", err)
 		}
 
-		dbHost := getEnv("DB_HOST", "localhost")
-		dbPort := getEnv("DB_PORT", "5432")
-		dbUser := getEnv("DB_USER", "postgres")
-		dbPassword := getEnv("DB_PASSWORD", "")
-		dbName := getEnv("DB_NAME", "postgres")
-
-		// PostgreSQL 연결 문자열 생성
-		databaseURL := fmt.Sprintf(
-			"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-			dbHost, dbPort, dbUser, dbPassword, dbName,
-		)
+		dbType := getEnv("DB_TYPE", "postgres")
+		sqlitePath := getEnv("SQLITE_PATH", "./local.db")
+		var databaseURL string
+		if dbType == "postgres" {
+			dbHost := getEnv("DB_HOST", "localhost")
+			dbPort := getEnv("DB_PORT", "5432")
+			dbUser := getEnv("DB_USER", "postgres")
+			dbPassword := getEnv("DB_PASSWORD", "")
+			dbName := getEnv("DB_NAME", "postgres")
+			// PostgreSQL 연결 문자열 생성
+			databaseURL = fmt.Sprintf(
+				"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+				dbHost, dbPort, dbUser, dbPassword, dbName,
+			)
+		}
 
 		config = Config{
 			Port:         getEnv("PORT", "3000"),
@@ -56,6 +62,8 @@ func LoadConfig(filenames ...string) Config {
 			SMTPID:       getEnv("SMTP_ID", ""),
 			SMTPPassword: getEnv("SMTP_PASSWORD", ""),
 			DatabaseURL:  databaseURL,
+			DBType:       dbType,
+			SqlitePath:   sqlitePath,
 		}
 		log.Info("Configuration loaded successfully", config)
 	})
