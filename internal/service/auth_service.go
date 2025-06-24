@@ -32,28 +32,34 @@ func NewAuthService(dbPool *pgxpool.Pool, userRepo repository.UserRepository, pr
 
 // RegisterUser registers a new user and returns the registration response.
 func (s *AuthService) RegisterUser(ctx context.Context, req *dto.RegisterRequest) (*dto.RegisterResponse, error) {
-	// 트랜잭션 시작
-	tx, err := s.dbPool.Begin(ctx)
-	if err != nil {
-		slog.Error("RegisterUser: begin tx failed", "error", err)
-		return nil, err
+	var tx interface{}
+	var commit, rollback func() error
+	if s.dbPool != nil {
+		pgxTx, err := s.dbPool.Begin(ctx)
+		if err != nil {
+			slog.Error("RegisterUser: begin tx failed", "error", err)
+			return nil, err
+		}
+		tx = pgxTx
+		commit = func() error { return pgxTx.Commit(ctx) }
+		rollback = func() error { return pgxTx.Rollback(ctx) }
+	} else {
+		// sqlite 등 트랜잭션 없는 경우
+		commit = func() error { return nil }
+		rollback = func() error { return nil }
 	}
+	var err error
 	defer func() {
 		if p := recover(); p != nil {
-			if rbErr := tx.Rollback(ctx); rbErr != nil && rbErr.Error() != "pgx: tx is closed" {
-				// 롤백 실패시 로그 등 처리
-				slog.Warn("rollback failed", "error", rbErr)
-			}
-			panic(p) // 패닉 발생시 다시 던짐
+			_ = rollback()
+			panic(p)
 		} else if err != nil {
-			if rbErr := tx.Rollback(ctx); rbErr != nil && rbErr.Error() != "pgx: tx is closed" {
-				slog.Warn("RegisterUser: rollback failed", "error", rbErr)
-			}
+			_ = rollback()
 		}
 	}()
 
 	// 1. 이메일 중복 확인 - 트랜잭션 내에서 확인
-	existingUser, err := s.userRepo.FindByEmailTx(ctx, tx, req.Email) // 트랜잭션 버전 필요
+	existingUser, err := s.userRepo.FindByEmailTx(ctx, tx, req.Email)
 	if err != nil {
 		slog.Error("RegisterUser: find email failed", "error", err)
 		return nil, err
@@ -75,7 +81,7 @@ func (s *AuthService) RegisterUser(ctx context.Context, req *dto.RegisterRequest
 	userEntity := &entity.UserEntity{
 		Email:        req.Email,
 		PasswordHash: hashed,
-		Provider:     "local", // 기본값 설정
+		Provider:     "local",
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
@@ -83,14 +89,12 @@ func (s *AuthService) RegisterUser(ctx context.Context, req *dto.RegisterRequest
 	// 트랜잭션으로 사용자 생성
 	newUserID, err := s.userRepo.CreateTx(ctx, tx, userEntity)
 	if err != nil {
-		if rbErr := tx.Rollback(ctx); rbErr != nil && rbErr.Error() != "pgx: tx is closed" {
-			slog.Warn("RegisterUser: rollback failed", "error", rbErr)
-		}
+		_ = rollback()
 		slog.Error("RegisterUser: create user failed, rollback", "error", err)
 		return nil, err
 	}
 
-	// 4. ProfileEntity 생성 및 저장 (선택값 처리)
+	// 4. ProfileEntity 생성 및 저장
 	profileEntity := &entity.ProfileEntity{
 		UserID:      newUserID,
 		Name:        req.Name,
@@ -100,18 +104,14 @@ func (s *AuthService) RegisterUser(ctx context.Context, req *dto.RegisterRequest
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-	// 트랜잭션으로 프로필 생성
 	err = s.profileRepo.CreateTx(ctx, tx, profileEntity)
 	if err != nil {
-		if rbErr := tx.Rollback(ctx); rbErr != nil && rbErr.Error() != "pgx: tx is closed" {
-			slog.Warn("RegisterUser: rollback failed", "error", rbErr)
-		}
+		_ = rollback()
 		slog.Error("RegisterUser: create profile failed", "error", err)
 		return nil, err
 	}
 
-	// 트랜잭션 커밋
-	if err := tx.Commit(ctx); err != nil {
+	if err := commit(); err != nil {
 		slog.Error("RegisterUser: commit failed", "error", err)
 		return nil, err
 	}
@@ -119,8 +119,8 @@ func (s *AuthService) RegisterUser(ctx context.Context, req *dto.RegisterRequest
 	slog.Info("RegisterUser: success", "userID", newUserID, "email", req.Email)
 	result := &dto.RegisterResponse{
 		Email:       userEntity.Email,
-		Name:        profileEntity.Name,                           // ProfileFromEntity가 반환하는 *Profile의 필드 사용
-		BirthDate:   profileEntity.BirthDate.Format("2006-01-02"), // YYYY-MM-DD
+		Name:        profileEntity.Name,
+		BirthDate:   profileEntity.BirthDate.Format("2006-01-02"),
 		GenderCode:  string(profileEntity.GenderCode),
 		PhoneNumber: profileEntity.PhoneNumber,
 	}
@@ -267,21 +267,26 @@ func (s *AuthService) FindEmail(ctx context.Context, cmd *dto.FindEmailRequest) 
 
 // ForgotPassword sends a password reset email to the user and saves the reset token.
 func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
-	tx, err := s.dbPool.Begin(ctx)
-	if err != nil {
-		slog.Error("ForgotPassword: begin tx failed", "error", err)
-		return err
+	var commit, rollback func() error
+	var err error
+	if s.dbPool != nil {
+		pgxTx, err2 := s.dbPool.Begin(ctx)
+		if err2 != nil {
+			slog.Error("ForgotPassword: begin tx failed", "error", err2)
+			return err2
+		}
+		commit = func() error { return pgxTx.Commit(ctx) }
+		rollback = func() error { return pgxTx.Rollback(ctx) }
+	} else {
+		commit = func() error { return nil }
+		rollback = func() error { return nil }
 	}
 	defer func() {
 		if p := recover(); p != nil {
-			if rbErr := tx.Rollback(ctx); rbErr != nil && rbErr.Error() != "pgx: tx is closed" {
-				slog.Warn("ForgotPassword: rollback failed", "error", rbErr)
-			}
+			_ = rollback()
 			panic(p)
 		} else if err != nil {
-			if rbErr := tx.Rollback(ctx); rbErr != nil && rbErr.Error() != "pgx: tx is closed" {
-				slog.Warn("ForgotPassword: rollback failed", "error", rbErr)
-			}
+			_ = rollback()
 		}
 	}()
 	user, err := s.userRepo.FindByEmail(ctx, email)
@@ -311,7 +316,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 		return err
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := commit(); err != nil {
 		slog.Error("ForgotPassword: commit failed", "error", err)
 		return err
 	}
@@ -321,23 +326,30 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 
 // ResetPassword resets the user's password using the provided reset token.
 func (s *AuthService) ResetPassword(ctx context.Context, token, newPassword string) error {
-	tx, err := s.dbPool.Begin(ctx)
-	if err != nil {
-		slog.Error("ResetPassword: begin tx failed", "error", err)
-		return err
+	var commit, rollback func() error
+	if s.dbPool != nil {
+		pgxTx, err := s.dbPool.Begin(ctx)
+		if err != nil {
+			slog.Error("ResetPassword: begin tx failed", "error", err)
+			return err
+		}
+		commit = func() error { return pgxTx.Commit(ctx) }
+		rollback = func() error { return pgxTx.Rollback(ctx) }
+	} else {
+		// sqlite 등 트랜잭션 없는 경우
+		commit = func() error { return nil }
+		rollback = func() error { return nil }
 	}
+	var err error
 	defer func() {
 		if p := recover(); p != nil {
-			if rbErr := tx.Rollback(ctx); rbErr != nil && rbErr.Error() != "pgx: tx is closed" {
-				slog.Warn("ResetPassword: rollback failed", "error", rbErr)
-			}
+			_ = rollback()
 			panic(p)
 		} else if err != nil {
-			if rbErr := tx.Rollback(ctx); rbErr != nil && rbErr.Error() != "pgx: tx is closed" {
-				slog.Warn("ResetPassword: rollback failed", "error", rbErr)
-			}
+			_ = rollback()
 		}
 	}()
+
 	resetInfo, err := s.userRepo.FindByPasswordResetToken(ctx, token)
 	if err != nil {
 		slog.Error("ResetPassword: find token failed", "error", err)
@@ -356,13 +368,12 @@ func (s *AuthService) ResetPassword(ctx context.Context, token, newPassword stri
 		slog.Error("ResetPassword: update password failed", "error", err)
 		return err
 	}
-
 	// used=true로 업데이트
 	if err := s.userRepo.ExpirePasswordResetToken(ctx, token); err != nil {
 		slog.Error("ResetPassword: expire token failed", "error", err)
 		return err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := commit(); err != nil {
 		slog.Error("ResetPassword: commit failed", "error", err)
 		return err
 	}
@@ -394,23 +405,27 @@ func (s *AuthService) GetProfile(ctx context.Context, userID int64) (*dto.Profil
 
 // UpdateProfile updates the profile information for the given user ID.
 func (s *AuthService) UpdateProfile(ctx context.Context, userID int64, cmd *dto.UpdateProfileRequest) (*dto.ProfileResponse, error) {
-	tx, err := s.dbPool.Begin(ctx)
-	if err != nil {
-		slog.Error("UpdateProfile: begin tx failed", "error", err)
-		return nil, err
+	var commit, rollback func() error
+	if s.dbPool != nil {
+		pgxTx, err := s.dbPool.Begin(ctx)
+		if err != nil {
+			slog.Error("UpdateProfile: begin tx failed", "error", err)
+			return nil, err
+		}
+		commit = func() error { return pgxTx.Commit(ctx) }
+		rollback = func() error { return pgxTx.Rollback(ctx) }
+	} else {
+		// sqlite 등 트랜잭션 없는 경우
+		commit = func() error { return nil }
+		rollback = func() error { return nil }
 	}
+	var err error
 	defer func() {
 		if p := recover(); p != nil {
-			errRollback := tx.Rollback(ctx)
-			if errRollback != nil {
-				slog.Warn("Rollback failed after panic", "error", errRollback)
-			}
+			_ = rollback()
 			panic(p)
 		} else if err != nil {
-			errRollback := tx.Rollback(ctx)
-			if errRollback != nil && errRollback.Error() != "pgx: tx is closed" {
-				slog.Warn("Rollback failed", "error", errRollback)
-			}
+			_ = rollback()
 		}
 	}()
 
@@ -448,7 +463,7 @@ func (s *AuthService) UpdateProfile(ctx context.Context, userID int64, cmd *dto.
 		slog.Error("UpdateProfile: update failed", "error", err)
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := commit(); err != nil {
 		slog.Error("UpdateProfile: commit failed", "error", err)
 		return nil, err
 	}
@@ -475,21 +490,27 @@ func (s *AuthService) Logout(ctx context.Context, userID int64, refreshToken, _ 
 
 // ChangePassword changes the user's password after verifying the current password.
 func (s *AuthService) ChangePassword(ctx context.Context, userID int64, currentPassword, newPassword string) error {
-	tx, err := s.dbPool.Begin(ctx)
-	if err != nil {
-		slog.Error("ChangePassword: begin tx failed", "error", err)
-		return err
+	var commit, rollback func() error
+	if s.dbPool != nil {
+		pgxTx, err := s.dbPool.Begin(ctx)
+		if err != nil {
+			slog.Error("ChangePassword: begin tx failed", "error", err)
+			return err
+		}
+		commit = func() error { return pgxTx.Commit(ctx) }
+		rollback = func() error { return pgxTx.Rollback(ctx) }
+	} else {
+		// sqlite 등 트랜잭션 없는 경우
+		commit = func() error { return nil }
+		rollback = func() error { return nil }
 	}
+	var err error
 	defer func() {
 		if p := recover(); p != nil {
-			if rbErr := tx.Rollback(ctx); rbErr != nil && rbErr.Error() != "pgx: tx is closed" {
-				slog.Warn("ChangePassword: rollback failed", "error", rbErr)
-			}
+			_ = rollback()
 			panic(p)
 		} else if err != nil {
-			if rbErr := tx.Rollback(ctx); rbErr != nil && rbErr.Error() != "pgx: tx is closed" {
-				slog.Warn("ChangePassword: rollback failed", "error", rbErr)
-			}
+			_ = rollback()
 		}
 	}()
 
@@ -516,7 +537,7 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID int64, currentP
 		return err
 	}
 	_ = s.userRepo.DeleteAllRefreshTokens(ctx, userID)
-	if err := tx.Commit(ctx); err != nil {
+	if err := commit(); err != nil {
 		slog.Error("ChangePassword: commit failed", "error", err)
 		return err
 	}
@@ -541,21 +562,27 @@ func (s *AuthService) CheckPassword(ctx context.Context, userID int64, password 
 
 // DeleteProfile deletes the user's profile and all related refresh tokens.
 func (s *AuthService) DeleteProfile(ctx context.Context, userID int64) error {
-	tx, err := s.dbPool.Begin(ctx)
-	if err != nil {
-		slog.Error("DeleteProfile: begin tx failed", "error", err)
-		return err
+	var commit, rollback func() error
+	if s.dbPool != nil {
+		pgxTx, err := s.dbPool.Begin(ctx)
+		if err != nil {
+			slog.Error("DeleteProfile: begin tx failed", "error", err)
+			return err
+		}
+		commit = func() error { return pgxTx.Commit(ctx) }
+		rollback = func() error { return pgxTx.Rollback(ctx) }
+	} else {
+		// sqlite 등 트랜잭션 없는 경우
+		commit = func() error { return nil }
+		rollback = func() error { return nil }
 	}
+	var err error
 	defer func() {
 		if p := recover(); p != nil {
-			if rbErr := tx.Rollback(ctx); rbErr != nil && rbErr.Error() != "pgx: tx is closed" {
-				slog.Warn("DeleteProfile: rollback failed", "error", rbErr)
-			}
+			_ = rollback()
 			panic(p)
 		} else if err != nil {
-			if rbErr := tx.Rollback(ctx); rbErr != nil && rbErr.Error() != "pgx: tx is closed" {
-				slog.Warn("DeleteProfile: rollback failed", "error", rbErr)
-			}
+			_ = rollback()
 		}
 	}()
 	if err := s.userRepo.Delete(ctx, userID); err != nil {
@@ -563,7 +590,7 @@ func (s *AuthService) DeleteProfile(ctx context.Context, userID int64) error {
 		return err
 	}
 	_ = s.userRepo.DeleteAllRefreshTokens(ctx, userID)
-	if err := tx.Commit(ctx); err != nil {
+	if err := commit(); err != nil {
 		slog.Error("DeleteProfile: commit failed", "error", err)
 		return err
 	}

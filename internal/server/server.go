@@ -39,8 +39,9 @@ const (
 
 // Server wraps the Fiber app and database pool.
 type Server struct {
-	App    *fiber.App
-	DbPool *pgxpool.Pool
+	App       *fiber.App
+	DbPool    *pgxpool.Pool
+	SqliteConn interface{} // *sqlite.Conn 타입이지만, 임시로 interface{}로 둠
 }
 
 // NewServer creates and configures a new HTTP server for the authentication service.
@@ -57,18 +58,38 @@ func NewServer(cfg config.Config) *Server {
 	app.Use(logger.New())
 	app.Use(cors.New())
 
-	if err := database.Connect(cfg.DatabaseURL); err != nil {
-		panic(err)
+	var dbPool *pgxpool.Pool
+	var sqliteConn interface{}
+
+	switch cfg.DBType {
+	case "sqlite":
+		err := database.ConnectSqlite(cfg.SqlitePath)
+		if err != nil {
+			panic(err)
+		}
+		sqliteConn = database.GetSqliteConn()
+	case "postgres":
+		if err := database.Connect(cfg.DatabaseURL); err != nil {
+			panic(err)
+		}
+		dbPool = database.GetPool()
+	default:
+		panic("지원하지 않는 DB_TYPE: " + cfg.DBType)
 	}
-	dbPool := database.GetPool()
+
+	var userRepo repository.UserRepository
+	var profileRepo repository.ProfileRepository
+	if cfg.DBType == "sqlite" {
+		userRepo = repository.NewUserRepositoryAuto(cfg.DBType, nil, sqliteConn)
+		profileRepo = repository.NewProfileRepositoryAuto(cfg.DBType, nil, sqliteConn)
+	} else {
+		userRepo = repository.NewUserRepositoryAuto(cfg.DBType, dbPool, nil)
+		profileRepo = repository.NewProfileRepositoryAuto(cfg.DBType, dbPool, nil)
+	}
 
 	jwtService := service.NewJwtService(cfg.JwtSecret)
 	emailService := email.NewEmailService(cfg.SMTPServer, cfg.SMTPPort, cfg.SMTPID, cfg.SMTPPassword)
-	authService := service.NewAuthService(dbPool,
-		repository.NewUserRepository(dbPool),
-		repository.NewProfileRepository(dbPool),
-		jwtService, emailService,
-	)
+	authService := service.NewAuthService(dbPool, userRepo, profileRepo, jwtService, emailService)
 	authHandler := handler.NewAuthHandler(authService)
 
 	api := app.Group(APIPrefix).Group(APIVersion)
@@ -90,7 +111,7 @@ func NewServer(cfg config.Config) *Server {
 
 	app.Get("/swagger/*", swagger.HandlerDefault)
 
-	return &Server{App: app, DbPool: dbPool}
+	return &Server{App: app, DbPool: dbPool, SqliteConn: sqliteConn}
 }
 
 // Close gracefully closes the database connection pool.

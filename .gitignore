@@ -37,3 +37,8 @@ Thumbs.db
 .env
 
 docs/
+
+# sqlite
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

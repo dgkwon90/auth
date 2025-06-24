@@ -10,14 +10,15 @@ import (
 
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
+	"zombiezen.com/go/sqlite"
 )
 
 // UserRepository defines user-related database operations.
 type UserRepository interface {
-	CreateTx(ctx context.Context, tx pgx.Tx, user *entity.UserEntity) (int64, error)
+	CreateTx(ctx context.Context, tx interface{}, user *entity.UserEntity) (int64, error)
 	FindByID(ctx context.Context, id int64) (*entity.UserEntity, error)
 	FindByEmail(ctx context.Context, email string) (*entity.UserEntity, error)
-	FindByEmailTx(ctx context.Context, tx pgx.Tx, email string) (*entity.UserEntity, error)
+	FindByEmailTx(ctx context.Context, tx interface{}, email string) (*entity.UserEntity, error)
 	UpdatePassword(ctx context.Context, id int64, passwordHash string) error
 	Delete(ctx context.Context, id int64) error
 	InsertRefreshToken(ctx context.Context, rt *entity.RefreshTokenEntity) error
@@ -38,6 +39,21 @@ func NewUserRepository(dbPool *pgxpool.Pool) UserRepository {
 		slog.Warn("Error creating tables", "error", err)
 	}
 	return repo
+}
+
+// NewUserRepositoryAuto returns a UserRepository for the given DB type.
+func NewUserRepositoryAuto(dbType string, pgxPool *pgxpool.Pool, sqliteConn interface{}) UserRepository {
+	switch dbType {
+	case "sqlite":
+		if conn, ok := sqliteConn.(*sqlite.Conn); ok {
+			return NewUserRepositorySqlite(conn)
+		}
+		panic("sqliteConn is not *sqlite.Conn")
+	case "postgres":
+		fallthrough
+	default:
+		return NewUserRepository(pgxPool)
+	}
 }
 
 // userRepository implements UserRepository interface.
@@ -82,12 +98,16 @@ func (r *userRepository) createTable(ctx context.Context) error {
 // }
 
 // CreateTx: 트랜잭션(tx, 티엑스)으로 users 생성
-func (r *userRepository) CreateTx(ctx context.Context, tx pgx.Tx, user *entity.UserEntity) (int64, error) {
+func (r *userRepository) CreateTx(ctx context.Context, tx interface{}, user *entity.UserEntity) (int64, error) {
+	pgxTx, ok := tx.(pgx.Tx)
+	if !ok {
+		return 0, errors.New("tx is not pgx.Tx")
+	}
 	var id int64
 	query := `INSERT INTO users (email, password_hash, provider, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5)
         RETURNING id`
-	err := tx.QueryRow(ctx, query,
+	err := pgxTx.QueryRow(ctx, query,
 		user.Email, user.PasswordHash, user.Provider, user.CreatedAt, user.UpdatedAt,
 	).Scan(&id)
 	return id, err
@@ -143,12 +163,16 @@ func (r *userRepository) FindByEmail(ctx context.Context, email string) (*entity
 }
 
 // FindByEmailTx: 트랜잭션 내에서 이메일로 사용자 조회
-func (r *userRepository) FindByEmailTx(ctx context.Context, tx pgx.Tx, email string) (*entity.UserEntity, error) {
+func (r *userRepository) FindByEmailTx(ctx context.Context, tx interface{}, email string) (*entity.UserEntity, error) {
+	pgxTx, ok := tx.(pgx.Tx)
+	if !ok {
+		return nil, errors.New("tx is not pgx.Tx")
+	}
 	query := `SELECT id, email, password_hash,  provider, provider_id, created_at, updated_at, deleted_at
 		FROM users
 		WHERE email = $1 AND deleted_at IS NULL`
 	u := &entity.UserEntity{}
-	err := tx.QueryRow(ctx, query, email).Scan(
+	err := pgxTx.QueryRow(ctx, query, email).Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Provider, &u.ProviderID,
 		&u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
 	)
